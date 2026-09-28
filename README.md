@@ -1,6 +1,7 @@
 # 급식 식사 관리 시스템
 
-Flask와 SQLite로 학생 RFID(UID)와 급식 이용 기록을 관리하는 초기 프로젝트입니다.
+Flask와 SQLite로 학생 UID와 급식 이용 기록을 관리합니다. 기본 출입 흐름은
+ESP32/MFRC522가 아니라 `android/`의 태블릿 카메라 QR/바코드 앱입니다.
 
 ## 설치 및 실행
 
@@ -27,9 +28,37 @@ pytest
 
 태그 응답 코드는 `unregistered_card`(등록되지 않은 카드), `before_meal_time`, `after_meal_time`, `duplicate_same_day`, `approved`이며 HTTP 상태 코드도 함께 제공합니다. 검증 순서는 등록 → 학생의 학년·반에 해당하는 당일 일정과 시간 → 당일 중복 → 기록 저장입니다.
 
-## ESP32 배선
+## Android 태블릿 앱 (기본 사용 경로)
 
-`arduino/meal_reader.ino`에 Wi-Fi와 서버 주소를 설정합니다. MFRC522: SS=GPIO5, RST=GPIO4, SCK=18, MOSI=23, MISO=19. SSD1306 I2C: SDA=21, SCL=22. 부저는 GPIO27입니다. ESP32 Arduino Library Manager에서 MFRC522, Adafruit GFX, Adafruit SSD1306을 설치하세요.
+`android/`를 Android Studio에서 열고 Gradle 동기화 후 태블릿 또는 카메라가 있는 Android
+기기에서 `app`을 실행합니다. 앱은 Google ML Kit Barcode Scanning으로 QR/바코드를 읽고,
+문자열을 학생 UID로 사용해 `POST /api/meal/scan`에 전송합니다. 카메라 권한을 허용하고
+화면의 서버 주소를 저장하면 승인·중복·미등록·배식 시간 오류를 한국어로 표시합니다.
+같은 UID의 연속 인식은 앱에서 잠시 무시하며, 서버의 당일 중복 검증도 그대로 적용됩니다.
+
+### 설치 및 실행 순서
+
+1. 라즈베리파이와 태블릿을 같은 Wi-Fi에 연결합니다.
+2. 라즈베리파이에서 프로젝트를 설치하고 서버를 실행합니다.
+   `flask --app app:create_app run --host 0.0.0.0 --port 5000`
+3. Android Studio에서 `android/`를 열어 태블릿에 `app`을 설치합니다.
+4. 앱 서버 주소에 라즈베리파이의 사설 IP를 입력합니다(예:
+   `http://192.168.1.10:5000`). 주소는 기기에 저장됩니다. 개발용 HTTP를 허용하므로
+   신뢰할 수 있는 내부망에서만 사용하고, 운영에서는 HTTPS를 사용하세요.
+
+### 학생 QR 코드 값 규칙
+
+QR/바코드의 원시 문자열 전체가 UID가 됩니다. 예를 들어 QR 값이 `ABC123`이면 먼저
+`POST /api/students`에 `{"uid":"ABC123","grade":3,"class":2}`로 학생을 등록해야 합니다.
+앞뒤 공백은 서버에서 제거되지만, 대소문자와 나머지 문자는 등록값과 정확히 일치해야 합니다.
+QR 내용에 이름·주민번호 등 불필요한 개인정보를 넣지 마세요.
+
+### 기존 Arduino 스케치
+
+`arduino/meal_reader.ino`는 호환성을 위해 남겨 둔 이전 ESP32/MFRC522 예제이며 더 이상
+기본 경로가 아닙니다. 새 설치는 Android 태블릿 앱을 사용하세요. 스케치를 계속 사용할
+경우에만 Wi-Fi와 서버 주소를 설정합니다. MFRC522: SS=GPIO5, RST=GPIO4, SCK=18,
+MOSI=23, MISO=19. SSD1306 I2C: SDA=21, SCL=22. 부저는 GPIO27입니다.
 
 ## 보안 및 운영
 

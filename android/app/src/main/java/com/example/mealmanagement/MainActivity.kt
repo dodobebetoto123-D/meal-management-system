@@ -196,7 +196,7 @@ private fun CameraPreview(modifier: Modifier, onBarcode: (String) -> Unit) {
                 }
                 provider.unbindAll()
                 provider.bindToLifecycle(
-                    lifecycleOwner, CameraSelector.DEFAULT_BACK_CAMERA, preview, analysis
+                    lifecycleOwner, CameraSelector.DEFAULT_FRONT_CAMERA, preview, analysis
                 )
             }, ContextCompat.getMainExecutor(viewContext))
             previewView

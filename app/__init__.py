@@ -24,6 +24,7 @@ def create_app(test_config=None):
         raise ValueError("TIMEZONE must be a valid IANA timezone") from exc
 
     app.register_blueprint(api, url_prefix="/api")
+    app.register_blueprint(web)
     app.teardown_appcontext(close_db)
     with app.app_context():
         init_db()
@@ -34,4 +35,4 @@ def configured_timezone(app):
     return ZoneInfo(app.config["TIMEZONE"])
 
 
-from .routes import api  # noqa: E402
+from .routes import api, web  # noqa: E402

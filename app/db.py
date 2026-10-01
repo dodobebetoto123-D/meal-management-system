@@ -29,6 +29,15 @@ CREATE TABLE IF NOT EXISTS meal_records (
     served_at TEXT NOT NULL,
     UNIQUE (uid, schedule_id)
 );
+CREATE TABLE IF NOT EXISTS audit_logs (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_id INTEGER REFERENCES admins(id),
+    action TEXT NOT NULL,
+    target_type TEXT NOT NULL,
+    target_id TEXT NOT NULL,
+    details TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
 CREATE INDEX IF NOT EXISTS idx_schedules_date ON meal_schedules(meal_date);
 CREATE TABLE IF NOT EXISTS admins (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -65,6 +74,9 @@ def close_db(_error=None):
 def init_db():
     db = get_db()
     db.executescript(SCHEMA)
+    columns = {row["name"] for row in db.execute("PRAGMA table_info(meal_records)")}
+    if "source" not in columns:
+        db.execute("ALTER TABLE meal_records ADD COLUMN source TEXT NOT NULL DEFAULT 'scan'")
     username = current_app.config.get("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
     password = current_app.config.get("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
     admin_exists = db.execute("SELECT 1 FROM admins LIMIT 1").fetchone()

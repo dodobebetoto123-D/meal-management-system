@@ -1,0 +1,26 @@
+<!doctype html>
+<html lang="ko">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>관리자 로그인</title>
+  <style>
+    body{font-family:system-ui,sans-serif;max-width:28rem;margin:10vh auto;padding:1rem;background:#f5f7fa}
+    main{background:white;padding:2rem;border-radius:.6rem;box-shadow:0 2px 12px #0002}
+    label{display:block;margin:1rem 0 .3rem;font-weight:600} input,button{width:100%;padding:.7rem;box-sizing:border-box;font:inherit}
+    button{margin-top:1.4rem;background:#1769aa;color:white;border:0;border-radius:.3rem;cursor:pointer}
+    .error{color:#a40000;background:#fee;padding:.7rem}
+  </style>
+</head>
+<body><main>
+  <h1>급식 관리 관리자 로그인</h1>
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% for category, message in messages %}<p class="{{ category }}">{{ message }}</p>{% endfor %}
+  {% endwith %}
+  <form method="post">
+    <label for="username">관리자 아이디</label><input id="username" name="username" required autofocus>
+    <label for="password">비밀번호</label><input id="password" name="password" type="password" required>
+    <button type="submit">로그인</button>
+  </form>
+</main></body>
+</html>

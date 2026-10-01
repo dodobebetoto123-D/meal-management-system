@@ -38,14 +38,36 @@ POST /api/auth/login
 로그인 API만 인증 없이 호출할 수 있습니다. 운영 서버와 Android 앱 사이에는 반드시 HTTPS를
 사용하고, 개발용 HTTP는 신뢰할 수 있는 내부망에서만 사용하세요.
 
+## 브라우저 관리자 화면
+
+서버 실행 후 데스크톱·태블릿 브라우저에서 `https://<서버 주소>/admin` (개발 시
+`http://127.0.0.1:5000/admin`)으로 접속합니다. 최초 설정에서 만든 동일한
+`ADMIN_USERNAME`/`ADMIN_PASSWORD`로 로그인하면, 기존 Bearer 세션 토큰을 HttpOnly
+SameSite 쿠키로 연결한 관리자 화면을 사용할 수 있습니다. 로그인하지 않은 사용자는
+로그인 화면으로 이동하며, 관리 API는 계속 기존 Bearer 인증으로 보호됩니다.
+
+화면에서는 학생과 급식 일정의 목록·수정·삭제, 최근 식사 기록 조회·삭제를 제공합니다.
+식사 기록은 Android `POST /api/meal/scan`에서만 추가되며 `source=scan`으로 구분됩니다.
+관리자가 잘못된 기록을 삭제하면 감사 로그에 관리자와 대상이 남습니다. 학생 또는 일정에
+연결된 식사 기록이 있으면 삭제가 차단되므로, 기록을 보존해야 하는 운영에서는 먼저
+백업하고 삭제 영향(학생 삭제는 해당 UID의 기록, 일정 삭제는 해당 일정의 기록)을
+검토하세요. 기록 삭제는 복구되지 않습니다.
+
+운영 전 SQLite 파일을 복사해 백업하되, 실행 중인 서버의 파일을 그대로 복사하지 말고
+서버를 중지하거나 SQLite 백업 절차를 사용하세요. 관리자 화면과 API는 반드시 HTTPS
+역방향 프록시 뒤에서 운영하고, 개발용 HTTP는 신뢰할 수 있는 내부망에서만 사용하세요.
+
 ## API
 
 - `POST /api/students` `{ "uid":"A1", "grade":3, "class":2 }` 등록
 - `GET /api/students` 학생 목록
+- `PUT /api/students/<uid>` UID·학년·반 수정, `DELETE /api/students/<uid>?confirm_uid=<uid>` 안전 삭제
 - `POST /api/schedules` `{ "date":"2026-09-28", "meal_type":"lunch", "grade":3, "class":2, "starts_at":"11:30", "ends_at":"13:30" }` (학년·반별 일정)
 - `GET /api/schedules?date=YYYY-MM-DD` 일정 조회
+- `PUT /api/schedules/<id>` 일정 수정, `DELETE /api/schedules/<id>?confirm=삭제` 일정 삭제
 - `POST /api/meal/scan` `{ "uid":"A1" }` 태그 검증 및 기록
 - `GET /api/meals/today` 오늘 기록
+- `DELETE /api/meals/<id>?confirm=삭제` 잘못된 기록 삭제(관리자 감사 로그 기록)
 
 태그 응답 코드는 `unregistered_card`(등록되지 않은 카드), `before_meal_time`, `after_meal_time`, `duplicate_same_day`, `approved`이며 HTTP 상태 코드도 함께 제공합니다. 검증 순서는 등록 → 학생의 학년·반에 해당하는 당일 일정과 시간 → 당일 중복 → 기록 저장입니다.
 

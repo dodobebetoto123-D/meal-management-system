@@ -55,6 +55,40 @@ def test_web_student_update_and_safe_delete(client):
     assert response.status_code == 302
 
 
+def test_web_student_add_requires_login_and_refreshes_list(client):
+    assert client.post(
+        "/admin/students", data={"uid": "A1", "grade": "3", "class": "2"}
+    ).status_code == 302
+    login(client)
+
+    response = client.post(
+        "/admin/students", data={"uid": "A1", "grade": "3", "class": "2"}
+    )
+    assert response.status_code == 302
+    page = client.get("/admin")
+    assert "A1" in page.get_data(as_text=True)
+    assert "학생을 추가했습니다." in page.get_data(as_text=True)
+
+
+def test_web_student_add_validates_and_handles_duplicate_uid(client):
+    login(client)
+    response = client.post(
+        "/admin/students", data={"uid": " ", "grade": "3", "class": "2"}
+    )
+    assert response.status_code == 302
+    assert "UID와 학년(1~12), 반(양의 정수)을 입력하세요." in client.get(
+        "/admin"
+    ).get_data(as_text=True)
+
+    client.post("/admin/students", data={"uid": "A1", "grade": "3", "class": "2"})
+    response = client.post(
+        "/admin/students", data={"uid": "A1", "grade": "4", "class": "1"}
+    )
+    assert response.status_code == 302
+    page = client.get("/admin").get_data(as_text=True)
+    assert "이미 등록된 UID입니다." in page
+
+
 def test_web_record_delete_requires_confirmation(client):
     login(client)
     db = client.application.config["DATABASE"]

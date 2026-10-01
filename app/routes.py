@@ -468,6 +468,26 @@ def web_edit_student(old_uid):
     return redirect(url_for("web.dashboard"))
 
 
+@web.post("/admin/students")
+@require_web_auth
+def web_add_student():
+    try:
+        uid, grade, class_number = _validate_student(request.form)
+        db = get_db()
+        db.execute(
+            "INSERT INTO students(uid, grade, class_number) VALUES (?, ?, ?)",
+            (uid, grade, class_number),
+        )
+        db.commit()
+        flash("학생을 추가했습니다.", "success")
+    except (TypeError, ValueError):
+        flash("UID와 학년(1~12), 반(양의 정수)을 입력하세요.", "error")
+    except sqlite3.IntegrityError:
+        get_db().rollback()
+        flash("이미 등록된 UID입니다.", "error")
+    return redirect(url_for("web.dashboard"))
+
+
 @web.post("/admin/students/<path:uid>/delete")
 @require_web_auth
 def web_delete_student(uid):

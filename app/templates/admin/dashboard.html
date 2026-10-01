@@ -11,7 +11,13 @@
     input,button{padding:.45rem;font:inherit} button{cursor:pointer;border:1px solid #789;border-radius:.25rem;background:#eef4f8}
     .danger{color:#a40000}.danger button{background:#fff0f0;border-color:#c66}.success{color:#075d26;background:#e8f7ed;padding:.6rem}.error{color:#8a0808;background:#ffeded;padding:.6rem}
     form.inline{display:flex;gap:.3rem;flex-wrap:wrap;align-items:center} .help{color:#5c6670;font-size:.9rem}
-    @media(max-width:700px){header{align-items:flex-start;gap:1rem;flex-direction:column}main{padding:.5rem}}
+    .student-add{display:grid;grid-template-columns:minmax(12rem,2fr) minmax(6rem,1fr) minmax(6rem,1fr) auto;gap:.5rem;align-items:end}
+    .student-add label{display:flex;flex-direction:column;gap:.25rem;font-weight:600}
+    .student-add button{height:fit-content;background:#e7f3ff;border-color:#4b83b1}
+    @media(max-width:700px){header{align-items:flex-start;gap:1rem;flex-direction:column}main{padding:.5rem}
+      section{padding:.75rem} .student-add{grid-template-columns:1fr 1fr}
+      .student-add label:first-child{grid-column:1 / -1}.student-add button{width:100%}
+      input,button{min-height:2.5rem}}
   </style>
 </head>
 <body>
@@ -23,7 +29,16 @@
     {% for category, message in messages %}<p class="{{ category }}">{{ message }}</p>{% endfor %}
   {% endwith %}
   <p class="help">학생 삭제는 연결된 식사 기록이 있으면 차단됩니다. 일정과 기록 삭제는 복구되지 않으며 확인 문구가 필요합니다.</p>
-  <section><h2>학생 ({{ students|length }})</h2><table><tr><th>UID</th><th>학년</th><th>반</th><th>수정</th><th>삭제</th></tr>
+  <section><h2>학생 추가</h2>
+    <form class="student-add" method="post" action="{{ url_for('web.web_add_student') }}">
+      <label>UID<input name="uid" maxlength="128" required autocomplete="off"></label>
+      <label>학년<input name="grade" type="number" min="1" max="12" required></label>
+      <label>반<input name="class" type="number" min="1" required></label>
+      <button type="submit">학생 추가</button>
+    </form>
+    <p class="help">UID는 스캔할 카드 값과 동일하게 입력하세요. 이미 등록된 UID는 추가할 수 없습니다.</p>
+  </section>
+  <section><h2>학생 목록 ({{ students|length }})</h2><table><tr><th>UID</th><th>학년</th><th>반</th><th>수정</th><th>삭제</th></tr>
   {% for student in students %}<tr><td>{{ student["uid"] }}</td><td colspan="2">
     <form class="inline" method="post" action="{{ url_for('web.web_edit_student', old_uid=student['uid']) }}">
       <input name="uid" value="{{ student['uid'] }}" required maxlength="128"><input name="grade" type="number" min="1" max="12" value="{{ student['grade'] }}" required>

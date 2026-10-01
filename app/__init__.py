@@ -12,11 +12,18 @@ def create_app(test_config=None):
         DATABASE=os.path.join(app.instance_path, "meals.sqlite3"),
         TIMEZONE=os.environ.get("MEAL_TIMEZONE", "Asia/Seoul"),
         SESSION_TTL_SECONDS=8 * 60 * 60,
+        SECRET_KEY=os.environ.get("SECRET_KEY"),
         ADMIN_USERNAME=os.environ.get("ADMIN_USERNAME"),
         ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD"),
     )
     if test_config:
         app.config.update(test_config)
+    if not app.config.get("SECRET_KEY") and not app.config.get("TESTING"):
+        raise RuntimeError(
+            "SECRET_KEY is required. Generate one with "
+            "`python3 -c 'import secrets; print(secrets.token_hex(32))'` "
+            "and export it before starting Flask."
+        )
     os.makedirs(app.instance_path, exist_ok=True)
     try:
         ZoneInfo(app.config["TIMEZONE"])

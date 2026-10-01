@@ -8,7 +8,8 @@ from app.time_rules import meal_status
 def client(tmp_path):
     app = create_app({"TESTING": True, "DATABASE": str(tmp_path / "test.sqlite3"),
                       "TIMEZONE": "Asia/Seoul", "ADMIN_USERNAME": "admin",
-                      "ADMIN_PASSWORD": "correct horse battery staple"})
+                      "ADMIN_PASSWORD": "correct horse battery staple",
+                      "SECRET_KEY": "test-only-secret-key"})
     return app.test_client()
 
 

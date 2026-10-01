@@ -13,6 +13,7 @@ def client(tmp_path):
         "TIMEZONE": "Asia/Seoul",
         "ADMIN_USERNAME": "admin",
         "ADMIN_PASSWORD": "password",
+        "SECRET_KEY": "test-only-secret-key",
     })
     return app.test_client()
 
@@ -28,6 +29,15 @@ def test_web_requires_login_and_login_sets_cookie(client):
     response = login(client)
     assert "admin_token=" in response.headers["Set-Cookie"]
     assert client.get("/admin").status_code == 200
+
+
+def test_production_startup_requires_secret_key(tmp_path):
+    with pytest.raises(RuntimeError, match="SECRET_KEY is required"):
+        create_app({
+            "DATABASE": str(tmp_path / "missing-secret.sqlite3"),
+            "ADMIN_USERNAME": "admin",
+            "ADMIN_PASSWORD": "password",
+        })
 
 
 def test_web_student_update_and_safe_delete(client):

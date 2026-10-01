@@ -11,11 +11,18 @@ Python 3.10+에서 실행합니다.
 python -m venv .venv
 # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
+export SECRET_KEY=$(python3 -c 'import secrets; print(secrets.token_hex(32))')
 flask --app app:create_app run --host 0.0.0.0 --port 5000
 pytest
 ```
 
 `MEAL_TIMEZONE` 환경변수는 IANA 시간대이며 기본값은 `Asia/Seoul`입니다. SQLite 파일은 `instance/meals.sqlite3`에 자동 생성됩니다.
+`SECRET_KEY`는 Flask 관리자 로그인 세션에 필요한 운영 비밀값입니다. 고정 기본값은
+사용하지 않으므로, 기존 SQLite DB가 있더라도 설정하지 않으면 서버가 시작을 거부합니다.
+위 명령으로 생성한 값을 비밀 저장소나 프로세스 환경 설정에 저장하고 코드·셸 기록에
+커밋하거나 노출하지 마세요. PowerShell에서는
+`$env:SECRET_KEY = (python -c "import secrets; print(secrets.token_hex(32))")`를
+사용할 수 있습니다.
 
 ## 관리자 인증 및 최초 설정
 

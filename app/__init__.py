@@ -11,6 +11,9 @@ def create_app(test_config=None):
     app.config.from_mapping(
         DATABASE=os.path.join(app.instance_path, "meals.sqlite3"),
         TIMEZONE=os.environ.get("MEAL_TIMEZONE", "Asia/Seoul"),
+        SESSION_TTL_SECONDS=8 * 60 * 60,
+        ADMIN_USERNAME=os.environ.get("ADMIN_USERNAME"),
+        ADMIN_PASSWORD=os.environ.get("ADMIN_PASSWORD"),
     )
     if test_config:
         app.config.update(test_config)

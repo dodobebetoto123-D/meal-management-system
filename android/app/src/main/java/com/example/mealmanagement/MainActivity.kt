@@ -13,6 +13,7 @@ import androidx.compose.material3.Button
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.PasswordVisualTransformation
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -57,6 +58,10 @@ private fun MealScannerApp() {
         mutableStateOf(preferences.getString("base_url", "http://192.168.1.10:5000") ?: "")
     }
     var savedBaseUrl by remember { mutableStateOf(baseUrl) }
+    var token by remember { mutableStateOf(preferences.getString("token", null)) }
+    var username by remember { mutableStateOf("") }
+    var password by remember { mutableStateOf("") }
+    var loginMessage by remember { mutableStateOf<String?>(null) }
     var result by remember { mutableStateOf<ScanResult?>(null) }
     var lastScanAt by remember { mutableStateOf(0L) }
     var lastUid by remember { mutableStateOf<String?>(null) }
@@ -76,8 +81,6 @@ private fun MealScannerApp() {
             modifier = Modifier.fillMaxSize().padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Text("급식 QR/바코드 스캐너", style = MaterialTheme.typography.headlineSmall)
-            Text("학생 QR/바코드의 문자열을 학생 UID로 서버에 전송합니다.")
             Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                 OutlinedTextField(
                     value = baseUrl,
@@ -95,14 +98,44 @@ private fun MealScannerApp() {
                     modifier = Modifier.padding(top = 8.dp)
                 ) { Text("저장") }
             }
-            if (!hasCameraPermission) {
+            if (token == null) {
+                Text("관리자 로그인", style = MaterialTheme.typography.headlineSmall)
+                OutlinedTextField(username, { username = it }, label = { Text("관리자 ID") },
+                    singleLine = true, modifier = Modifier.fillMaxWidth())
+                OutlinedTextField(password, { password = it }, label = { Text("비밀번호") },
+                    singleLine = true, visualTransformation = PasswordVisualTransformation(),
+                    modifier = Modifier.fillMaxWidth())
+                Button(
+                    enabled = savedBaseUrl.isNotBlank() && username.isNotBlank() && password.isNotBlank(),
+                    onClick = {
+                        scope.launch {
+                            val login = login(savedBaseUrl, username, password)
+                            loginMessage = login.message
+                            if (login.token != null) {
+                                token = login.token
+                                preferences.edit().putString("token", login.token).apply()
+                                password = ""
+                            }
+                        }
+                    }
+                ) { Text("로그인") }
+                loginMessage?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+            } else if (!hasCameraPermission) {
+                Text("급식 QR/바코드 스캐너", style = MaterialTheme.typography.headlineSmall)
                 Text("카메라 권한이 필요합니다.")
                 Button(onClick = { permissionLauncher.launch(Manifest.permission.CAMERA) }) {
                     Text("카메라 권한 허용")
                 }
-            } else if (savedBaseUrl.isBlank()) {
-                Text("먼저 서버 주소를 저장하세요.")
             } else {
+                Text("급식 QR/바코드 스캐너", style = MaterialTheme.typography.headlineSmall)
+                Text("학생 QR/바코드의 문자열을 학생 UID로 서버에 전송합니다.")
+                Button(onClick = {
+                    scope.launch {
+                        logout(savedBaseUrl, token)
+                        preferences.edit().remove("token").apply()
+                        token = null
+                    }
+                }) { Text("로그아웃") }
                 CameraPreview(
                     modifier = Modifier.fillMaxWidth().weight(1f),
                     onBarcode = { uid ->
@@ -114,7 +147,13 @@ private fun MealScannerApp() {
                         lastUid = uid
                         result = ScanResult("처리 중: $uid", true)
                         scope.launch {
-                            result = submitScan(savedBaseUrl, uid)
+                            val response = submitScan(savedBaseUrl, token!!, uid)
+                            if (response.expired) {
+                                preferences.edit().remove("token").apply()
+                                token = null
+                                loginMessage = "로그인이 만료되었습니다. 다시 로그인하세요."
+                            }
+                            result = response.result
                         }
                     }
                 )
@@ -133,8 +172,39 @@ private fun MealScannerApp() {
 }
 
 private data class ScanResult(val message: String, val approved: Boolean)
+private data class LoginResult(val message: String, val token: String? = null)
+private data class ScanResponse(val result: ScanResult, val expired: Boolean = false)
 
-private suspend fun submitScan(baseUrl: String, uid: String): ScanResult =
+private suspend fun login(baseUrl: String, username: String, password: String): LoginResult =
+    withContext(Dispatchers.IO) {
+        try {
+            val connection = URI("$baseUrl/api/auth/login").toURL().openConnection() as HttpURLConnection
+            connection.requestMethod = "POST"
+            connection.connectTimeout = 5_000
+            connection.readTimeout = 5_000
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            connection.outputStream.use {
+                it.write(JSONObject().put("username", username).put("password", password)
+                    .toString().toByteArray(Charsets.UTF_8))
+            }
+            val body = (if (connection.responseCode in 200..299) connection.inputStream
+            else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
+            val json = runCatching { JSONObject(body) }.getOrNull()
+            if (connection.responseCode in 200..299 && json != null) {
+                LoginResult("로그인되었습니다.", json.optString("token"))
+            } else {
+                LoginResult(when (json?.optString("code")) {
+                    "invalid_credentials" -> "관리자 ID 또는 비밀번호가 올바르지 않습니다."
+                    else -> "로그인에 실패했습니다 (${connection.responseCode})"
+                })
+            }
+        } catch (exception: Exception) {
+            LoginResult("서버에 연결할 수 없습니다. 서버 주소를 확인하세요.")
+        }
+    }
+
+private suspend fun submitScan(baseUrl: String, token: String, uid: String): ScanResponse =
     withContext(Dispatchers.IO) {
         try {
             val connection = URI("$baseUrl/api/meal/scan").toURL().openConnection() as HttpURLConnection
@@ -143,12 +213,16 @@ private suspend fun submitScan(baseUrl: String, uid: String): ScanResult =
             connection.readTimeout = 5_000
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
+            connection.setRequestProperty("Authorization", "Bearer $token")
             connection.outputStream.use {
                 it.write(JSONObject().put("uid", uid).toString().toByteArray(Charsets.UTF_8))
             }
             val body = (if (connection.responseCode in 200..299) connection.inputStream
             else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
             val code = runCatching { JSONObject(body).optString("code") }.getOrDefault("")
+            if (connection.responseCode == 401) {
+                return@withContext ScanResponse(ScanResult("로그인이 만료되었습니다.", false), true)
+            }
             val message = when (code) {
                 "approved" -> "승인되었습니다. 맛있게 드세요!"
                 "duplicate_same_day" -> "이미 오늘 급식 기록이 있습니다."
@@ -157,11 +231,23 @@ private suspend fun submitScan(baseUrl: String, uid: String): ScanResult =
                 "after_meal_time" -> "배식 시간이 끝났습니다."
                 else -> "서버 응답 오류 (${connection.responseCode})"
             }
-            ScanResult(message, code == "approved")
+            ScanResponse(ScanResult(message, code == "approved"))
         } catch (exception: Exception) {
-            ScanResult("서버에 연결할 수 없습니다: ${exception.message ?: "주소를 확인하세요"}", false)
+            ScanResponse(ScanResult("서버에 연결할 수 없습니다. 서버 주소를 확인하세요.", false))
         }
     }
+
+private suspend fun logout(baseUrl: String, token: String?) = withContext(Dispatchers.IO) {
+    if (token == null) return@withContext
+    runCatching {
+        val connection = URI("$baseUrl/api/auth/logout").toURL().openConnection() as HttpURLConnection
+        connection.requestMethod = "POST"
+        connection.connectTimeout = 5_000
+        connection.readTimeout = 5_000
+        connection.setRequestProperty("Authorization", "Bearer $token")
+        connection.responseCode
+    }
+}
 
 @Composable
 private fun CameraPreview(modifier: Modifier, onBarcode: (String) -> Unit) {

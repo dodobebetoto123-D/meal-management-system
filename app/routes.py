@@ -1,6 +1,10 @@
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
+import hashlib
+import secrets
 import sqlite3
-from flask import Blueprint, current_app, jsonify, request
+from functools import wraps
+from flask import Blueprint, current_app, g, jsonify, request
+from werkzeug.security import check_password_hash
 
 from .db import get_db
 from .time_rules import meal_status, parse_hhmm
@@ -18,12 +22,83 @@ def json_body():
     return body if isinstance(body, dict) else None
 
 
+def _token_hash(token):
+    return hashlib.sha256(token.encode("utf-8")).hexdigest()
+
+
+def require_auth(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        header = request.headers.get("Authorization", "")
+        if not header.startswith("Bearer "):
+            return error("authentication_required", "Bearer token is required", 401)
+        token = header[7:].strip()
+        if not token:
+            return error("authentication_required", "Bearer token is required", 401)
+        now = datetime.now(timezone.utc)
+        db = get_db()
+        row = db.execute(
+            """SELECT a.id, a.username, s.id AS session_id, s.expires_at
+               FROM admin_sessions s JOIN admins a ON a.id=s.admin_id
+               WHERE s.token_hash=?""",
+            (_token_hash(token),),
+        ).fetchone()
+        if not row:
+            return error("authentication_required", "Invalid or expired token", 401)
+        try:
+            expires_at = datetime.fromisoformat(row["expires_at"])
+        except ValueError:
+            expires_at = datetime.min.replace(tzinfo=timezone.utc)
+        if expires_at <= now:
+            db.execute("DELETE FROM admin_sessions WHERE id=?", (row["session_id"],))
+            db.commit()
+            return error("authentication_required", "Invalid or expired token", 401)
+        g.admin = row
+        return view(*args, **kwargs)
+    return wrapped
+
+
+@api.post("/auth/login")
+def login():
+    body = json_body()
+    username = body.get("username") if body else None
+    password = body.get("password") if body else None
+    if not isinstance(username, str) or not isinstance(password, str):
+        return error("invalid_request", "username and password are required")
+    admin = get_db().execute(
+        "SELECT id, username, password_hash FROM admins WHERE username=?", (username,)
+    ).fetchone()
+    if not admin or not check_password_hash(admin["password_hash"], password):
+        return error("invalid_credentials", "Invalid username or password", 401)
+    token = secrets.token_urlsafe(32)
+    expires_at = datetime.now(timezone.utc) + timedelta(
+        seconds=current_app.config["SESSION_TTL_SECONDS"]
+    )
+    db = get_db()
+    db.execute(
+        "INSERT INTO admin_sessions(admin_id, token_hash, expires_at) VALUES (?, ?, ?)",
+        (admin["id"], _token_hash(token), expires_at.isoformat()),
+    )
+    db.commit()
+    return jsonify({"token": token, "expires_at": expires_at.isoformat(), "username": admin["username"]})
+
+
+@api.post("/auth/logout")
+@require_auth
+def logout():
+    header = request.headers["Authorization"]
+    get_db().execute("DELETE FROM admin_sessions WHERE token_hash=?", (_token_hash(header[7:].strip()),))
+    get_db().commit()
+    return jsonify({"status": "ok"})
+
+
 @api.get("/health")
 def health():
     return jsonify({"status": "ok"})
 
 
 @api.get("/students")
+@require_auth
 def students():
     rows = get_db().execute(
         "SELECT uid, grade, class_number FROM students ORDER BY grade, class_number, uid"
@@ -32,6 +107,7 @@ def students():
 
 
 @api.post("/students")
+@require_auth
 def create_student():
     body = json_body()
     if not body or not isinstance(body.get("uid"), str) or not body["uid"].strip():
@@ -53,6 +129,7 @@ def create_student():
 
 
 @api.get("/schedules")
+@require_auth
 def schedules():
     date = request.args.get("date")
     query = """SELECT id, meal_date, meal_type, grade, class_number,
@@ -67,6 +144,7 @@ def schedules():
 
 
 @api.post("/schedules")
+@require_auth
 def create_schedule():
     body = json_body()
     required_text = ("date", "meal_type", "starts_at", "ends_at")
@@ -107,6 +185,7 @@ def create_schedule():
 
 
 @api.get("/meals/today")
+@require_auth
 def today_meals():
     today = datetime.now(configured_timezone(current_app)).date().isoformat()
     rows = get_db().execute(
@@ -117,6 +196,7 @@ def today_meals():
 
 
 @api.post("/meal/scan")
+@require_auth
 def scan():
     body = json_body()
     uid = body.get("uid").strip() if body and isinstance(body.get("uid"), str) else ""

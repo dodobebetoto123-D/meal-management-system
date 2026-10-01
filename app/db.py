@@ -1,4 +1,7 @@
+import os
 import sqlite3
+from datetime import datetime, timezone
+from werkzeug.security import generate_password_hash
 from flask import current_app, g
 
 
@@ -27,6 +30,21 @@ CREATE TABLE IF NOT EXISTS meal_records (
     UNIQUE (uid, schedule_id)
 );
 CREATE INDEX IF NOT EXISTS idx_schedules_date ON meal_schedules(meal_date);
+CREATE TABLE IF NOT EXISTS admins (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    username TEXT NOT NULL UNIQUE,
+    password_hash TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE TABLE IF NOT EXISTS admin_sessions (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    admin_id INTEGER NOT NULL REFERENCES admins(id) ON DELETE CASCADE,
+    token_hash TEXT NOT NULL UNIQUE,
+    expires_at TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_token ON admin_sessions(token_hash);
+CREATE INDEX IF NOT EXISTS idx_admin_sessions_expiry ON admin_sessions(expires_at);
 """
 
 
@@ -45,5 +63,18 @@ def close_db(_error=None):
 
 
 def init_db():
-    get_db().executescript(SCHEMA)
-    get_db().commit()
+    db = get_db()
+    db.executescript(SCHEMA)
+    username = current_app.config.get("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
+    password = current_app.config.get("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
+    admin_exists = db.execute("SELECT 1 FROM admins LIMIT 1").fetchone()
+    if username and password and not admin_exists:
+        db.execute(
+            "INSERT INTO admins(username, password_hash) VALUES (?, ?)",
+            (username, generate_password_hash(password)),
+        )
+    elif not admin_exists and not current_app.config.get("TESTING"):
+        raise RuntimeError(
+            "No administrator exists. Set ADMIN_USERNAME and ADMIN_PASSWORD for first startup."
+        )
+    db.commit()

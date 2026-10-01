@@ -17,6 +17,27 @@ pytest
 
 `MEAL_TIMEZONE` 환경변수는 IANA 시간대이며 기본값은 `Asia/Seoul`입니다. SQLite 파일은 `instance/meals.sqlite3`에 자동 생성됩니다.
 
+## 관리자 인증 및 최초 설정
+
+학생·일정 관리, 오늘 기록 조회, 급식 스캔 API는 관리자 Bearer 토큰이 필요합니다.
+최초 실행 전에 `ADMIN_USERNAME`과 `ADMIN_PASSWORD`를 설정하면 해당 계정이 해시된
+비밀번호로 한 번만 생성됩니다. 기존 관리자가 있는 DB에서는 환경변수가 없어도 시작할 수
+있지만, 관리자가 없는 운영 DB에서 두 변수가 없으면 서버가 명확한 오류로 시작을 거부합니다.
+운영에서는 셸 히스토리에 비밀번호가 남지 않도록 비밀 저장소나 프로세스 환경 설정을 통해
+주입하세요. 예를 들어 PowerShell에서는 `$env:ADMIN_PASSWORD = Read-Host 'ADMIN_PASSWORD'`
+처럼 대화형으로 입력하고, 값을 명령줄 인자로 전달하지 마세요.
+
+```bash
+POST /api/auth/login
+{"username":"admin","password":"<관리자 비밀번호>"}
+```
+
+응답의 `token`을 `Authorization: Bearer <token>` 헤더로 보호 API에 보내고,
+`POST /api/auth/logout`으로 즉시 폐기합니다. 토큰은 서버에 해시로 저장되며 기본 8시간 후
+만료됩니다. 만료되거나 폐기된 토큰은 `401` JSON 응답을 반환합니다. `/api/health`와
+로그인 API만 인증 없이 호출할 수 있습니다. 운영 서버와 Android 앱 사이에는 반드시 HTTPS를
+사용하고, 개발용 HTTP는 신뢰할 수 있는 내부망에서만 사용하세요.
+
 ## API
 
 - `POST /api/students` `{ "uid":"A1", "grade":3, "class":2 }` 등록

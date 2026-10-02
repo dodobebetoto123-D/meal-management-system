@@ -70,6 +70,7 @@ def test_existing_students_are_migrated_with_nullable_name(tmp_path):
         ).fetchone()[0]
         connection.close()
     assert "name" in columns
+    assert "student_number" in columns
     assert legacy_name is None
 
 
@@ -81,7 +82,7 @@ def test_web_student_update_and_safe_delete(client):
     connection.commit()
     connection.close()
     response = client.post("/admin/students/A1/edit",
-                           data={"name": "김학생", "uid": "A2", "grade": "4", "class": "1"})
+                           data={"name": "김학생", "grade": "4", "class": "1", "number": "2"})
     assert response.status_code == 302
     assert client.get("/admin").status_code == 200
     response = client.post("/admin/students/A2/delete", data={"confirm_uid": "wrong"})
@@ -90,36 +91,51 @@ def test_web_student_update_and_safe_delete(client):
 
 def test_web_student_add_requires_login_and_refreshes_list(client):
     assert client.post(
-        "/admin/students", data={"name": "홍길동", "uid": "A1", "grade": "3", "class": "2"}
+        "/admin/students", data={"name": "홍길동", "grade": "3", "class": "2", "number": "1"}
     ).status_code == 302
     login(client)
 
     response = client.post(
-        "/admin/students", data={"name": "홍길동", "uid": "A1", "grade": "3", "class": "2"}
+        "/admin/students", data={"name": "홍길동", "grade": "3", "class": "2", "number": "1"}
     )
     assert response.status_code == 302
     page = client.get("/admin")
-    assert "A1" in page.get_data(as_text=True)
+    assert "ST30201" in page.get_data(as_text=True)
     assert "학생을 추가했습니다." in page.get_data(as_text=True)
 
 
 def test_web_student_add_validates_and_handles_duplicate_uid(client):
     login(client)
     response = client.post(
-        "/admin/students", data={"name": " ", "uid": " ", "grade": "3", "class": "2"}
+        "/admin/students", data={"name": " ", "grade": "3", "class": "2", "number": "1"}
     )
     assert response.status_code == 302
-    assert "이름(1~100자), UID와 학년(1~12), 반(양의 정수)을 입력하세요." in client.get(
+    assert "이름(1~100자), 학년(1~9), 반과 번호(각 1~99)를 입력하세요." in client.get(
         "/admin"
     ).get_data(as_text=True)
 
-    client.post("/admin/students", data={"name": "홍길동", "uid": "A1", "grade": "3", "class": "2"})
+    client.post("/admin/students", data={"name": "홍길동", "grade": "3", "class": "2", "number": "1"})
     response = client.post(
-        "/admin/students", data={"name": "다른학생", "uid": "A1", "grade": "4", "class": "1"}
+        "/admin/students", data={"name": "다른학생", "grade": "3", "class": "2", "number": "1"}
     )
     assert response.status_code == 302
     page = client.get("/admin").get_data(as_text=True)
-    assert "이미 등록된 UID입니다." in page
+    assert "같은 학년·반·번호의 학생이 이미 등록되어 있습니다." in page
+
+
+def test_web_student_qr_is_uid_only_and_downloadable(client):
+    login(client)
+    response = client.post(
+        "/admin/students",
+        data={"name": "홍길동", "grade": "2", "class": "1", "number": "12"},
+    )
+    assert response.status_code == 302
+    qr = client.get("/admin/students/ST20112/qr")
+    assert qr.status_code == 200
+    assert qr.mimetype == "image/png"
+    assert client.get("/admin/students/ST20112/qr?download=1").headers[
+        "Content-Disposition"
+    ].startswith("attachment;")
 
 
 def test_web_record_delete_requires_confirmation(client):

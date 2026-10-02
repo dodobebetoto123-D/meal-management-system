@@ -9,8 +9,9 @@ SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
     uid TEXT PRIMARY KEY,
     name TEXT,
-    grade INTEGER NOT NULL CHECK (grade BETWEEN 1 AND 12),
-    class_number INTEGER NOT NULL CHECK (class_number > 0),
+    grade INTEGER NOT NULL CHECK (grade BETWEEN 1 AND 9),
+    class_number INTEGER NOT NULL CHECK (class_number BETWEEN 1 AND 99),
+    student_number INTEGER CHECK (student_number BETWEEN 1 AND 99),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
 );
 CREATE TABLE IF NOT EXISTS meal_schedules (
@@ -81,6 +82,13 @@ def init_db():
     student_columns = {row["name"] for row in db.execute("PRAGMA table_info(students)")}
     if "name" not in student_columns:
         db.execute("ALTER TABLE students ADD COLUMN name TEXT")
+    if "student_number" not in student_columns:
+        db.execute("ALTER TABLE students ADD COLUMN student_number INTEGER")
+    db.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_students_class_number "
+        "ON students(grade, class_number, student_number) "
+        "WHERE student_number IS NOT NULL"
+    )
     username = current_app.config.get("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
     password = current_app.config.get("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
     admin_exists = db.execute("SELECT 1 FROM admins LIMIT 1").fetchone()

@@ -62,6 +62,21 @@ def test_student_name_is_required_and_returned(auth_client):
     assert auth_client.get("/api/students").get_json()[-1]["name"] == "김학생"
 
 
+def test_api_student_number_is_validated_and_duplicate_is_clear(auth_client):
+    response = auth_client.post(
+        "/api/students",
+        json={"name": "번호학생", "uid": "NUMBER1", "grade": 2, "class": 1, "number": 12},
+    )
+    assert response.status_code == 201
+    assert response.get_json()["number"] == 12
+    duplicate = auth_client.post(
+        "/api/students",
+        json={"name": "중복학생", "uid": "NUMBER2", "grade": 2, "class": 1, "number": 12},
+    )
+    assert duplicate.status_code == 409
+    assert duplicate.get_json()["code"] == "duplicate_student_number"
+
+
 def test_today_meals_include_student_name(auth_client):
     setup_data(auth_client)
     assert auth_client.post("/api/meal/scan", json={"uid": "ABC123"}).status_code == 201

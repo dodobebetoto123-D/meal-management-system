@@ -1,10 +1,12 @@
 from datetime import datetime, timedelta, timezone
+from io import BytesIO
 import hashlib
 import secrets
 import sqlite3
 from functools import wraps
-from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, url_for
+from flask import Blueprint, current_app, flash, g, jsonify, redirect, render_template, request, send_file, url_for
 from werkzeug.security import check_password_hash
+import qrcode
 
 from .db import get_db
 from .time_rules import meal_status, parse_hhmm
@@ -87,16 +89,28 @@ def _audit(action, target_type, target_id, details):
     )
 
 
-def _validate_student(body):
+def _validate_student(body, auto_uid=False):
     uid = body.get("uid", "").strip() if isinstance(body.get("uid"), str) else ""
     name = body.get("name", "").strip() if isinstance(body.get("name"), str) else ""
     try:
         grade, class_number = int(body["grade"]), int(body["class"])
-        if not 1 <= len(name) <= 100 or len(uid) > 128 or not uid or not 1 <= grade <= 12 or class_number <= 0:
+        number_value = body.get("number", body.get("student_number"))
+        student_number = int(number_value) if number_value not in (None, "") else None
+        if not 1 <= len(name) <= 100 or len(uid) > 128 or not 1 <= grade <= 9:
+            raise ValueError
+        if not 1 <= class_number <= 99:
+            raise ValueError
+        if student_number is not None and not 1 <= student_number <= 99:
+            raise ValueError
+        if auto_uid:
+            if student_number is None:
+                raise ValueError
+            uid = f"ST{grade}{class_number:02d}{student_number:02d}"
+        elif not uid:
             raise ValueError
     except (KeyError, TypeError, ValueError):
-        raise ValueError("이름(1~100자), UID, 학년(1~12), 반(양의 정수)을 입력하세요.")
-    return uid, name, grade, class_number
+        raise ValueError("이름(1~100자), 학년(1~9), 반과 번호(각 1~99)를 입력하세요.")
+    return uid, name, grade, class_number, student_number
 
 
 def _validate_schedule(body):
@@ -155,7 +169,8 @@ def health():
 @require_auth
 def students():
     rows = get_db().execute(
-        "SELECT uid, name, grade, class_number FROM students ORDER BY grade, class_number, uid"
+        "SELECT uid, name, grade, class_number, student_number FROM students "
+        "ORDER BY grade, class_number, student_number, uid"
     ).fetchall()
     return jsonify([dict(row) for row in rows])
 
@@ -165,17 +180,25 @@ def students():
 def create_student():
     body = json_body()
     try:
-        uid, name, grade, class_number = _validate_student(body or {})
+        uid, name, grade, class_number, student_number = _validate_student(body or {})
     except ValueError as exc:
         return error("invalid_request", str(exc))
     db = get_db()
     try:
-        db.execute("INSERT INTO students(uid, name, grade, class_number) VALUES (?, ?, ?, ?)",
-                   (uid, name, grade, class_number))
+        if student_number is not None and db.execute(
+            "SELECT 1 FROM students WHERE grade=? AND class_number=? AND student_number=?",
+            (grade, class_number, student_number),
+        ).fetchone():
+            return error("duplicate_student_number", "같은 학년·반·번호의 학생이 이미 등록되어 있습니다.", 409)
+        db.execute(
+            "INSERT INTO students(uid, name, grade, class_number, student_number) VALUES (?, ?, ?, ?, ?)",
+            (uid, name, grade, class_number, student_number),
+        )
         db.commit()
     except sqlite3.IntegrityError:
-        return error("duplicate_student", "uid is already registered", 409)
-    return jsonify({"uid": uid, "name": name, "grade": grade, "class": class_number}), 201
+        return error("duplicate_student", "UID가 이미 등록되어 있습니다.", 409)
+    return jsonify({"uid": uid, "name": name, "grade": grade, "class": class_number,
+                    "number": student_number}), 201
 
 
 @api.put("/students/<path:old_uid>")
@@ -183,24 +206,33 @@ def create_student():
 def update_student(old_uid):
     body = json_body() or {}
     try:
-        uid, name, grade, class_number = _validate_student(body)
+        uid, name, grade, class_number, student_number = _validate_student(body)
     except ValueError as exc:
         return error("invalid_request", str(exc))
     db = get_db()
-    if not db.execute("SELECT 1 FROM students WHERE uid=?", (old_uid,)).fetchone():
+    existing = db.execute("SELECT * FROM students WHERE uid=?", (old_uid,)).fetchone()
+    if not existing:
         return error("not_found", "student not found", 404)
+    if student_number is None:
+        student_number = existing["student_number"]
+    if student_number is not None and db.execute(
+        "SELECT 1 FROM students WHERE grade=? AND class_number=? AND student_number=? AND uid<>?",
+        (grade, class_number, student_number, old_uid),
+    ).fetchone():
+        return error("duplicate_student_number", "같은 학년·반·번호의 학생이 이미 등록되어 있습니다.", 409)
     try:
         db.execute("PRAGMA defer_foreign_keys = ON")
-        db.execute("UPDATE students SET uid=?, name=?, grade=?, class_number=? WHERE uid=?",
-                   (uid, name, grade, class_number, old_uid))
+        db.execute("UPDATE students SET uid=?, name=?, grade=?, class_number=?, student_number=? WHERE uid=?",
+                   (uid, name, grade, class_number, student_number, old_uid))
         db.execute("UPDATE meal_records SET uid=? WHERE uid=?", (uid, old_uid))
         db.commit()
     except sqlite3.IntegrityError:
         db.rollback()
-        return error("duplicate_student", "uid is already registered", 409)
+        return error("duplicate_student", "UID가 이미 등록되어 있습니다.", 409)
     _audit("update", "student", old_uid, f"uid={uid},grade={grade},class={class_number}")
     db.commit()
-    return jsonify({"uid": uid, "name": name, "grade": grade, "class": class_number})
+    return jsonify({"uid": uid, "name": name, "grade": grade, "class": class_number,
+                    "number": student_number})
 
 
 @api.delete("/students/<path:uid>")
@@ -431,7 +463,8 @@ def web_logout():
 def dashboard():
     db = get_db()
     students = db.execute(
-        "SELECT uid, name, grade, class_number FROM students ORDER BY grade, class_number, uid"
+        "SELECT uid, name, grade, class_number, student_number "
+        "FROM students ORDER BY grade, class_number, student_number, uid"
     ).fetchall()
     schedules = db.execute(
         "SELECT id, meal_date, meal_type, grade, class_number, starts_at, ends_at "
@@ -447,24 +480,57 @@ def dashboard():
                            records=records, admin=g.admin)
 
 
+@web.get("/admin/students/<path:uid>/qr")
+@require_web_auth
+def web_student_qr(uid):
+    student = get_db().execute("SELECT uid FROM students WHERE uid=?", (uid,)).fetchone()
+    if not student:
+        return error("not_found", "student not found", 404)
+    image = qrcode.make(student["uid"])
+    output = BytesIO()
+    image.save(output, format="PNG")
+    output.seek(0)
+    return send_file(
+        output,
+        mimetype="image/png",
+        as_attachment=request.args.get("download") == "1",
+        download_name=f"{student['uid']}.png",
+        max_age=0,
+    )
+
+
 @web.post("/admin/students/<path:old_uid>/edit")
 @require_web_auth
 def web_edit_student(old_uid):
     try:
-        uid, name, grade, class_number = _validate_student(request.form)
+        uid, name, grade, class_number, student_number = _validate_student(
+            request.form, auto_uid=True
+        )
         db = get_db()
+        existing = db.execute("SELECT 1 FROM students WHERE uid=?", (old_uid,)).fetchone()
+        if not existing:
+            flash("학생을 찾을 수 없습니다.", "error")
+            return redirect(url_for("web.dashboard"))
+        if db.execute(
+            "SELECT 1 FROM students WHERE grade=? AND class_number=? AND student_number=? AND uid<>?",
+            (grade, class_number, student_number, old_uid),
+        ).fetchone():
+            flash("같은 학년·반·번호의 학생이 이미 등록되어 있습니다.", "error")
+            return redirect(url_for("web.dashboard"))
         db.execute("PRAGMA defer_foreign_keys = ON")
-        db.execute("UPDATE students SET uid=?, name=?, grade=?, class_number=? WHERE uid=?",
-                   (uid, name, grade, class_number, old_uid))
+        db.execute(
+            "UPDATE students SET uid=?, name=?, grade=?, class_number=?, student_number=? WHERE uid=?",
+            (uid, name, grade, class_number, student_number, old_uid),
+        )
         db.execute("UPDATE meal_records SET uid=? WHERE uid=?", (uid, old_uid))
         _audit("update", "student", old_uid, f"uid={uid},grade={grade},class={class_number}")
         db.commit()
         flash("학생 정보를 수정했습니다.", "success")
     except (TypeError, ValueError):
-        flash("학생 정보가 올바르지 않습니다.", "error")
+        flash("이름(1~100자), 학년(1~9), 반과 번호(각 1~99)를 입력하세요.", "error")
     except sqlite3.IntegrityError:
         get_db().rollback()
-        flash("이미 사용 중인 UID입니다.", "error")
+        flash("자동 생성된 UID가 이미 사용 중입니다.", "error")
     return redirect(url_for("web.dashboard"))
 
 
@@ -472,19 +538,28 @@ def web_edit_student(old_uid):
 @require_web_auth
 def web_add_student():
     try:
-        uid, name, grade, class_number = _validate_student(request.form)
+        uid, name, grade, class_number, student_number = _validate_student(
+            request.form, auto_uid=True
+        )
         db = get_db()
+        if db.execute(
+            "SELECT 1 FROM students WHERE grade=? AND class_number=? AND student_number=?",
+            (grade, class_number, student_number),
+        ).fetchone():
+            flash("같은 학년·반·번호의 학생이 이미 등록되어 있습니다.", "error")
+            return redirect(url_for("web.dashboard"))
         db.execute(
-            "INSERT INTO students(uid, name, grade, class_number) VALUES (?, ?, ?, ?)",
-            (uid, name, grade, class_number),
+            "INSERT INTO students(uid, name, grade, class_number, student_number) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (uid, name, grade, class_number, student_number),
         )
         db.commit()
         flash("학생을 추가했습니다.", "success")
     except (TypeError, ValueError):
-        flash("이름(1~100자), UID와 학년(1~12), 반(양의 정수)을 입력하세요.", "error")
+        flash("이름(1~100자), 학년(1~9), 반과 번호(각 1~99)를 입력하세요.", "error")
     except sqlite3.IntegrityError:
         get_db().rollback()
-        flash("이미 등록된 UID입니다.", "error")
+        flash("자동 생성된 UID가 이미 사용 중입니다.", "error")
     return redirect(url_for("web.dashboard"))
 
 

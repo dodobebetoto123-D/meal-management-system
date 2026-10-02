@@ -32,18 +32,21 @@
   <section><h2>학생 추가</h2>
     <form class="student-add" method="post" action="{{ url_for('web.web_add_student') }}">
       <label>이름<input name="name" maxlength="100" required autocomplete="off"></label>
-      <label>UID<input name="uid" maxlength="128" required autocomplete="off"></label>
-      <label>학년<input name="grade" type="number" min="1" max="12" required></label>
-      <label>반<input name="class" type="number" min="1" required></label>
+      <label>학년<input name="grade" type="number" min="1" max="9" required></label>
+      <label>반<input name="class" type="number" min="1" max="99" required></label>
+      <label>번호<input name="number" type="number" min="1" max="99" required></label>
       <button type="submit">학생 추가</button>
     </form>
-    <p class="help">UID는 스캔할 카드 값과 동일하게 입력하세요. 이미 등록된 UID는 추가할 수 없습니다.</p>
+    <p class="help">UID는 학년·반·번호로 서버가 자동 생성합니다(ST + 학년 1자리 + 반/번호 2자리).</p>
   </section>
-  <section><h2>학생 목록 ({{ students|length }})</h2><table><tr><th>이름</th><th>UID</th><th>학년</th><th>반</th><th>수정</th><th>삭제</th></tr>
-  {% for student in students %}<tr><td>{{ student["name"] or "미입력" }}</td><td colspan="4">
+  <section><h2>학생 목록 ({{ students|length }})</h2><table><tr><th>이름</th><th>UID</th><th>학년</th><th>반</th><th>번호</th><th>QR</th><th>수정</th><th>삭제</th></tr>
+  {% for student in students %}<tr><td>{{ student["name"] or "미입력" }}</td><td>{{ student["uid"] }}</td><td colspan="4">
     <form class="inline" method="post" action="{{ url_for('web.web_edit_student', old_uid=student['uid']) }}">
-      <input name="name" value="{{ student['name'] or '' }}" required maxlength="100"><input name="uid" value="{{ student['uid'] }}" required maxlength="128"><input name="grade" type="number" min="1" max="12" value="{{ student['grade'] }}" required>
-      <input name="class" type="number" min="1" value="{{ student['class_number'] }}" required><button>저장</button></form></td>
+      <input name="name" value="{{ student['name'] or '' }}" required maxlength="100"><input name="grade" type="number" min="1" max="9" value="{{ student['grade'] }}" required>
+      <input name="class" type="number" min="1" max="99" value="{{ student['class_number'] }}" required>
+      <input name="number" type="number" min="1" max="99" value="{{ student['student_number'] or '' }}" required><button>저장</button></form></td>
+    <td><img src="{{ url_for('web.web_student_qr', uid=student['uid']) }}" alt="{{ student['uid'] }} QR" width="120" height="120"><br>
+      <a href="{{ url_for('web.web_student_qr', uid=student['uid'], download=1) }}">PNG 다운로드</a></td>
     <td class="danger"><form class="inline" method="post" action="{{ url_for('web.web_delete_student', uid=student['uid']) }}">
       <input name="confirm_uid" placeholder="UID 재입력" required><button>삭제</button></form></td></tr>{% endfor %}</table></section>
   <section><h2>급식 일정 ({{ schedules|length }})</h2><table><tr><th>일정</th><th>날짜</th><th>급식 유형</th><th>학년/반</th><th>시간</th><th>삭제</th></tr>

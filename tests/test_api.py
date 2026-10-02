@@ -24,7 +24,7 @@ def auth_client(client):
 
 
 def setup_data(auth_client, start="00:00", end="23:59"):
-    assert auth_client.post("/api/students", json={"uid": "ABC123", "grade": 3, "class": 2}).status_code == 201
+    assert auth_client.post("/api/students", json={"name": "홍길동", "uid": "ABC123", "grade": 3, "class": 2}).status_code == 201
     today = datetime.now().date().isoformat()
     assert auth_client.post("/api/schedules", json={"date": today, "meal_type": "lunch",
                                                "grade": 3, "class": 2,
@@ -40,7 +40,9 @@ def test_time_validation():
 def test_authentication_and_scan_approval_and_duplicate(client, auth_client):
     assert client.post("/api/students", json={"uid": "ABC123", "grade": 3, "class": 2}).status_code == 401
     setup_data(auth_client)
-    assert auth_client.post("/api/meal/scan", json={"uid": "ABC123"}).status_code == 201
+    response = auth_client.post("/api/meal/scan", json={"uid": "ABC123"})
+    assert response.status_code == 201
+    assert response.get_json()["name"] == "홍길동"
     response = auth_client.post("/api/meal/scan", json={"uid": "ABC123"})
     assert response.status_code == 409 and response.get_json()["code"] == "duplicate_same_day"
 
@@ -48,6 +50,24 @@ def test_authentication_and_scan_approval_and_duplicate(client, auth_client):
 def test_scan_unregistered(auth_client):
     response = auth_client.post("/api/meal/scan", json={"uid": "NOPE"})
     assert response.status_code == 404 and response.get_json()["code"] == "unregistered_card"
+
+
+def test_student_name_is_required_and_returned(auth_client):
+    assert auth_client.post("/api/students", json={"uid": "NO_NAME", "grade": 3, "class": 2}).status_code == 400
+    response = auth_client.post(
+        "/api/students", json={"name": "  김학생  ", "uid": "NAMED", "grade": 3, "class": 2}
+    )
+    assert response.status_code == 201
+    assert response.get_json()["name"] == "김학생"
+    assert auth_client.get("/api/students").get_json()[-1]["name"] == "김학생"
+
+
+def test_today_meals_include_student_name(auth_client):
+    setup_data(auth_client)
+    assert auth_client.post("/api/meal/scan", json={"uid": "ABC123"}).status_code == 201
+    response = auth_client.get("/api/meals/today")
+    assert response.status_code == 200
+    assert response.get_json()[0]["name"] == "홍길동"
 
 
 def test_scan_before_and_after_meal(auth_client):

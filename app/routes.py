@@ -89,13 +89,14 @@ def _audit(action, target_type, target_id, details):
 
 def _validate_student(body):
     uid = body.get("uid", "").strip() if isinstance(body.get("uid"), str) else ""
+    name = body.get("name", "").strip() if isinstance(body.get("name"), str) else ""
     try:
         grade, class_number = int(body["grade"]), int(body["class"])
-        if not uid or not 1 <= grade <= 12 or class_number <= 0:
+        if not 1 <= len(name) <= 100 or len(uid) > 128 or not uid or not 1 <= grade <= 12 or class_number <= 0:
             raise ValueError
     except (KeyError, TypeError, ValueError):
-        raise ValueError("UID와 학년(1~12), 반(양의 정수)을 입력하세요.")
-    return uid, grade, class_number
+        raise ValueError("이름(1~100자), UID, 학년(1~12), 반(양의 정수)을 입력하세요.")
+    return uid, name, grade, class_number
 
 
 def _validate_schedule(body):
@@ -154,7 +155,7 @@ def health():
 @require_auth
 def students():
     rows = get_db().execute(
-        "SELECT uid, grade, class_number FROM students ORDER BY grade, class_number, uid"
+        "SELECT uid, name, grade, class_number FROM students ORDER BY grade, class_number, uid"
     ).fetchall()
     return jsonify([dict(row) for row in rows])
 
@@ -163,22 +164,18 @@ def students():
 @require_auth
 def create_student():
     body = json_body()
-    if not body or not isinstance(body.get("uid"), str) or not body["uid"].strip():
-        return error("invalid_request", "uid is required")
     try:
-        grade, class_number = int(body["grade"]), int(body["class"])
-        if not 1 <= grade <= 12 or class_number <= 0:
-            raise ValueError
-    except (KeyError, TypeError, ValueError):
-        return error("invalid_request", "grade and class must be positive integers (grade 1-12)")
+        uid, name, grade, class_number = _validate_student(body or {})
+    except ValueError as exc:
+        return error("invalid_request", str(exc))
     db = get_db()
     try:
-        db.execute("INSERT INTO students(uid, grade, class_number) VALUES (?, ?, ?)",
-                   (body["uid"].strip(), grade, class_number))
+        db.execute("INSERT INTO students(uid, name, grade, class_number) VALUES (?, ?, ?, ?)",
+                   (uid, name, grade, class_number))
         db.commit()
     except sqlite3.IntegrityError:
         return error("duplicate_student", "uid is already registered", 409)
-    return jsonify({"uid": body["uid"].strip(), "grade": grade, "class": class_number}), 201
+    return jsonify({"uid": uid, "name": name, "grade": grade, "class": class_number}), 201
 
 
 @api.put("/students/<path:old_uid>")
@@ -186,7 +183,7 @@ def create_student():
 def update_student(old_uid):
     body = json_body() or {}
     try:
-        uid, grade, class_number = _validate_student(body)
+        uid, name, grade, class_number = _validate_student(body)
     except ValueError as exc:
         return error("invalid_request", str(exc))
     db = get_db()
@@ -194,8 +191,8 @@ def update_student(old_uid):
         return error("not_found", "student not found", 404)
     try:
         db.execute("PRAGMA defer_foreign_keys = ON")
-        db.execute("UPDATE students SET uid=?, grade=?, class_number=? WHERE uid=?",
-                   (uid, grade, class_number, old_uid))
+        db.execute("UPDATE students SET uid=?, name=?, grade=?, class_number=? WHERE uid=?",
+                   (uid, name, grade, class_number, old_uid))
         db.execute("UPDATE meal_records SET uid=? WHERE uid=?", (uid, old_uid))
         db.commit()
     except sqlite3.IntegrityError:
@@ -203,7 +200,7 @@ def update_student(old_uid):
         return error("duplicate_student", "uid is already registered", 409)
     _audit("update", "student", old_uid, f"uid={uid},grade={grade},class={class_number}")
     db.commit()
-    return jsonify({"uid": uid, "grade": grade, "class": class_number})
+    return jsonify({"uid": uid, "name": name, "grade": grade, "class": class_number})
 
 
 @api.delete("/students/<path:uid>")
@@ -328,8 +325,9 @@ def delete_schedule(schedule_id):
 def today_meals():
     today = datetime.now(configured_timezone(current_app)).date().isoformat()
     rows = get_db().execute(
-        """SELECT r.id, r.uid, s.meal_date, s.meal_type, r.served_at, r.source
+        """SELECT r.id, r.uid, st.name, s.meal_date, s.meal_type, r.served_at, r.source
            FROM meal_records r JOIN meal_schedules s ON s.id=r.schedule_id
+           LEFT JOIN students st ON st.uid=r.uid
            WHERE s.meal_date=? ORDER BY r.served_at""", (today,)).fetchall()
     return jsonify([dict(row) for row in rows])
 
@@ -358,7 +356,7 @@ def scan():
         return error("invalid_request", "uid is required")
     db = get_db()
     student = db.execute(
-        "SELECT uid, grade, class_number FROM students WHERE uid=?", (uid,)
+        "SELECT uid, name, grade, class_number FROM students WHERE uid=?", (uid,)
     ).fetchone()
     if not student:
         return error("unregistered_card", "card UID is not registered", 404)
@@ -384,7 +382,8 @@ def scan():
     db.execute("INSERT INTO meal_records(uid, schedule_id, served_at, source) VALUES (?, ?, ?, ?)",
                (uid, active["id"], served, "scan"))
     db.commit()
-    return jsonify({"code": "approved", "uid": uid, "meal_type": active["meal_type"], "served_at": served}), 201
+    return jsonify({"code": "approved", "uid": uid, "name": student["name"],
+                    "meal_type": active["meal_type"], "served_at": served}), 201
 
 
 @web.route("/admin/login", methods=["GET", "POST"])
@@ -432,15 +431,16 @@ def web_logout():
 def dashboard():
     db = get_db()
     students = db.execute(
-        "SELECT uid, grade, class_number FROM students ORDER BY grade, class_number, uid"
+        "SELECT uid, name, grade, class_number FROM students ORDER BY grade, class_number, uid"
     ).fetchall()
     schedules = db.execute(
         "SELECT id, meal_date, meal_type, grade, class_number, starts_at, ends_at "
         "FROM meal_schedules ORDER BY meal_date DESC, starts_at"
     ).fetchall()
     records = db.execute(
-        """SELECT r.id, r.uid, s.meal_date, s.meal_type, r.served_at, r.source
+        """SELECT r.id, r.uid, st.name, s.meal_date, s.meal_type, r.served_at, r.source
            FROM meal_records r JOIN meal_schedules s ON s.id=r.schedule_id
+           LEFT JOIN students st ON st.uid=r.uid
            ORDER BY r.served_at DESC LIMIT 200"""
     ).fetchall()
     return render_template("admin/dashboard.html", students=students, schedules=schedules,
@@ -451,11 +451,11 @@ def dashboard():
 @require_web_auth
 def web_edit_student(old_uid):
     try:
-        uid, grade, class_number = _validate_student(request.form)
+        uid, name, grade, class_number = _validate_student(request.form)
         db = get_db()
         db.execute("PRAGMA defer_foreign_keys = ON")
-        db.execute("UPDATE students SET uid=?, grade=?, class_number=? WHERE uid=?",
-                   (uid, grade, class_number, old_uid))
+        db.execute("UPDATE students SET uid=?, name=?, grade=?, class_number=? WHERE uid=?",
+                   (uid, name, grade, class_number, old_uid))
         db.execute("UPDATE meal_records SET uid=? WHERE uid=?", (uid, old_uid))
         _audit("update", "student", old_uid, f"uid={uid},grade={grade},class={class_number}")
         db.commit()
@@ -472,16 +472,16 @@ def web_edit_student(old_uid):
 @require_web_auth
 def web_add_student():
     try:
-        uid, grade, class_number = _validate_student(request.form)
+        uid, name, grade, class_number = _validate_student(request.form)
         db = get_db()
         db.execute(
-            "INSERT INTO students(uid, grade, class_number) VALUES (?, ?, ?)",
-            (uid, grade, class_number),
+            "INSERT INTO students(uid, name, grade, class_number) VALUES (?, ?, ?, ?)",
+            (uid, name, grade, class_number),
         )
         db.commit()
         flash("학생을 추가했습니다.", "success")
     except (TypeError, ValueError):
-        flash("UID와 학년(1~12), 반(양의 정수)을 입력하세요.", "error")
+        flash("이름(1~100자), UID와 학년(1~12), 반(양의 정수)을 입력하세요.", "error")
     except sqlite3.IntegrityError:
         get_db().rollback()
         flash("이미 등록된 UID입니다.", "error")

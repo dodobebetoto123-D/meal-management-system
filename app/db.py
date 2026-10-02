@@ -8,6 +8,7 @@ from flask import current_app, g
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS students (
     uid TEXT PRIMARY KEY,
+    name TEXT,
     grade INTEGER NOT NULL CHECK (grade BETWEEN 1 AND 12),
     class_number INTEGER NOT NULL CHECK (class_number > 0),
     created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
@@ -77,6 +78,9 @@ def init_db():
     columns = {row["name"] for row in db.execute("PRAGMA table_info(meal_records)")}
     if "source" not in columns:
         db.execute("ALTER TABLE meal_records ADD COLUMN source TEXT NOT NULL DEFAULT 'scan'")
+    student_columns = {row["name"] for row in db.execute("PRAGMA table_info(students)")}
+    if "name" not in student_columns:
+        db.execute("ALTER TABLE students ADD COLUMN name TEXT")
     username = current_app.config.get("ADMIN_USERNAME") or os.environ.get("ADMIN_USERNAME")
     password = current_app.config.get("ADMIN_PASSWORD") or os.environ.get("ADMIN_PASSWORD")
     admin_exists = db.execute("SELECT 1 FROM admins LIMIT 1").fetchone()

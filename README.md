@@ -66,9 +66,9 @@ SameSite 쿠키로 연결한 관리자 화면을 사용할 수 있습니다. 로
 
 ## API
 
-- `POST /api/students` `{ "uid":"A1", "grade":3, "class":2 }` 등록
+- `POST /api/students` `{ "name":"홍길동", "uid":"A1", "grade":3, "class":2 }` 등록 (이름 필수, 1~100자)
 - `GET /api/students` 학생 목록
-- `PUT /api/students/<uid>` UID·학년·반 수정, `DELETE /api/students/<uid>?confirm_uid=<uid>` 안전 삭제
+- `PUT /api/students/<uid>` 이름·UID·학년·반 수정, `DELETE /api/students/<uid>?confirm_uid=<uid>` 안전 삭제
 - `POST /api/schedules` `{ "date":"2026-09-28", "meal_type":"lunch", "grade":3, "class":2, "starts_at":"11:30", "ends_at":"13:30" }` (학년·반별 일정)
 - `GET /api/schedules?date=YYYY-MM-DD` 일정 조회
 - `PUT /api/schedules/<id>` 일정 수정, `DELETE /api/schedules/<id>?confirm=삭제` 일정 삭제
@@ -99,8 +99,9 @@ SameSite 쿠키로 연결한 관리자 화면을 사용할 수 있습니다. 로
 ### 학생 QR 코드 값 규칙
 
 QR/바코드의 원시 문자열 전체가 UID가 됩니다. 예를 들어 QR 값이 `ABC123`이면 먼저
-`POST /api/students`에 `{"uid":"ABC123","grade":3,"class":2}`로 학생을 등록해야 합니다.
-앞뒤 공백은 서버에서 제거되지만, 대소문자와 나머지 문자는 등록값과 정확히 일치해야 합니다.
+`POST /api/students`에 `{"name":"홍길동","uid":"ABC123","grade":3,"class":2}`로 학생을 등록해야 합니다.
+앞뒤 공백은 서버에서 제거되지만, 대소문자와 나머지 문자는 등록값과 정확히 일치해야 합니다. 학생 이름은
+앞뒤 공백을 제거하고 1~100자여야 하며, 기존 DB의 이름 없는 학생은 `NULL`로 보존됩니다.
 QR 내용에 이름·주민번호 등 불필요한 개인정보를 넣지 마세요.
 
 ### 기존 Arduino 스케치
@@ -112,4 +113,4 @@ MOSI=23, MISO=19. SSD1306 I2C: SDA=21, SCL=22. 부저는 GPIO27입니다.
 
 ## 보안 및 운영
 
-개발용 서버를 인터넷에 직접 노출하지 말고 HTTPS 역방향 프록시와 방화벽을 사용하세요. 운영에서는 `flask run` 대신 Gunicorn/uWSGI를 사용하고, `SECRET_KEY`·Wi-Fi·서버 주소를 환경변수/비밀 저장소로 관리하며 코드에 커밋하지 마세요. UID는 개인정보로 취급하고 접근 로그·백업 파일을 보호하며 관리자 인증, rate limiting, 입력 감사와 정기 백업을 추가하세요. SQLite는 단일 서버/소규모 환경에 적합하며 규모가 커지면 PostgreSQL로 이전하세요.
+개발용 서버를 인터넷에 직접 노출하지 말고 HTTPS 역방향 프록시와 방화벽을 사용하세요. 운영에서는 `flask run` 대신 Gunicorn/uWSGI를 사용하고, `SECRET_KEY`·Wi-Fi·서버 주소를 환경변수/비밀 저장소로 관리하며 코드에 커밋하지 마세요. UID와 학생 이름은 개인정보로 취급하고 접근 로그·백업 파일을 보호하세요. 이름이 포함된 SQLite 원본과 백업은 접근 권한을 제한하고 암호화된 위치에 보관하며, 운영 전 복구 절차를 시험하세요. 관리자 인증, rate limiting, 입력 감사와 정기 백업을 추가하세요. SQLite는 단일 서버/소규모 환경에 적합하며 규모가 커지면 PostgreSQL로 이전하세요.

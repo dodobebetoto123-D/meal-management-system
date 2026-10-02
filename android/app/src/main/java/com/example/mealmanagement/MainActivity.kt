@@ -219,12 +219,16 @@ private suspend fun submitScan(baseUrl: String, token: String, uid: String): Sca
             }
             val body = (if (connection.responseCode in 200..299) connection.inputStream
             else connection.errorStream)?.bufferedReader()?.use { it.readText() }.orEmpty()
-            val code = runCatching { JSONObject(body).optString("code") }.getOrDefault("")
+            val json = runCatching { JSONObject(body) }.getOrNull()
+            val code = json?.optString("code").orEmpty()
+            val studentName = json?.optString("name").orEmpty()
             if (connection.responseCode == 401) {
                 return@withContext ScanResponse(ScanResult("로그인이 만료되었습니다.", false), true)
             }
             val message = when (code) {
-                "approved" -> "승인되었습니다. 맛있게 드세요!"
+                "approved" -> if (studentName.isNotBlank()) {
+                    "$studentName 학생, 승인되었습니다. 맛있게 드세요!"
+                } else "승인되었습니다. 맛있게 드세요!"
                 "duplicate_same_day" -> "이미 오늘 급식 기록이 있습니다."
                 "unregistered_card" -> "등록되지 않은 학생 UID입니다."
                 "before_meal_time" -> "아직 배식 시간이 아닙니다."

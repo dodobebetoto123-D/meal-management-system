@@ -11,7 +11,7 @@
     input,button{padding:.45rem;font:inherit} button{cursor:pointer;border:1px solid #789;border-radius:.25rem;background:#eef4f8}
     .danger{color:#a40000}.danger button{background:#fff0f0;border-color:#c66}.success{color:#075d26;background:#e8f7ed;padding:.6rem}.error{color:#8a0808;background:#ffeded;padding:.6rem}
     form.inline{display:flex;gap:.3rem;flex-wrap:wrap;align-items:center} .help{color:#5c6670;font-size:.9rem}
-    .student-add{display:grid;grid-template-columns:minmax(12rem,2fr) minmax(6rem,1fr) minmax(6rem,1fr) auto;gap:.5rem;align-items:end}
+    .student-add{display:grid;grid-template-columns:minmax(10rem,1.5fr) minmax(12rem,2fr) minmax(6rem,1fr) minmax(6rem,1fr) auto;gap:.5rem;align-items:end}
     .student-add label{display:flex;flex-direction:column;gap:.25rem;font-weight:600}
     .student-add button{height:fit-content;background:#e7f3ff;border-color:#4b83b1}
     @media(max-width:700px){header{align-items:flex-start;gap:1rem;flex-direction:column}main{padding:.5rem}
@@ -31,6 +31,7 @@
   <p class="help">학생 삭제는 연결된 식사 기록이 있으면 차단됩니다. 일정과 기록 삭제는 복구되지 않으며 확인 문구가 필요합니다.</p>
   <section><h2>학생 추가</h2>
     <form class="student-add" method="post" action="{{ url_for('web.web_add_student') }}">
+      <label>이름<input name="name" maxlength="100" required autocomplete="off"></label>
       <label>UID<input name="uid" maxlength="128" required autocomplete="off"></label>
       <label>학년<input name="grade" type="number" min="1" max="12" required></label>
       <label>반<input name="class" type="number" min="1" required></label>
@@ -38,11 +39,11 @@
     </form>
     <p class="help">UID는 스캔할 카드 값과 동일하게 입력하세요. 이미 등록된 UID는 추가할 수 없습니다.</p>
   </section>
-  <section><h2>학생 목록 ({{ students|length }})</h2><table><tr><th>UID</th><th>학년</th><th>반</th><th>수정</th><th>삭제</th></tr>
-  {% for student in students %}<tr><td>{{ student["uid"] }}</td><td colspan="2">
+  <section><h2>학생 목록 ({{ students|length }})</h2><table><tr><th>이름</th><th>UID</th><th>학년</th><th>반</th><th>수정</th><th>삭제</th></tr>
+  {% for student in students %}<tr><td>{{ student["name"] or "미입력" }}</td><td colspan="4">
     <form class="inline" method="post" action="{{ url_for('web.web_edit_student', old_uid=student['uid']) }}">
-      <input name="uid" value="{{ student['uid'] }}" required maxlength="128"><input name="grade" type="number" min="1" max="12" value="{{ student['grade'] }}" required>
-      <input name="class" type="number" min="1" value="{{ student['class_number'] }}" required><button>저장</button></form></td><td></td>
+      <input name="name" value="{{ student['name'] or '' }}" required maxlength="100"><input name="uid" value="{{ student['uid'] }}" required maxlength="128"><input name="grade" type="number" min="1" max="12" value="{{ student['grade'] }}" required>
+      <input name="class" type="number" min="1" value="{{ student['class_number'] }}" required><button>저장</button></form></td>
     <td class="danger"><form class="inline" method="post" action="{{ url_for('web.web_delete_student', uid=student['uid']) }}">
       <input name="confirm_uid" placeholder="UID 재입력" required><button>삭제</button></form></td></tr>{% endfor %}</table></section>
   <section><h2>급식 일정 ({{ schedules|length }})</h2><table><tr><th>일정</th><th>날짜</th><th>급식 유형</th><th>학년/반</th><th>시간</th><th>삭제</th></tr>
@@ -53,8 +54,8 @@
     <td class="danger"><form class="inline" method="post" action="{{ url_for('web.web_delete_schedule', schedule_id=item['id']) }}">
       <input name="confirm" placeholder="삭제 입력" required><button>삭제</button></form></td></tr>{% endfor %}</table></section>
   <section><h2>식사 기록 (최근 200건)</h2><p class="help">추가는 Android 스캔 API에서만 이루어지며, 관리자 삭제는 감사 로그에 남습니다.</p>
-  <table><tr><th>ID</th><th>UID</th><th>날짜</th><th>급식</th><th>처리 시각</th><th>출처</th><th>삭제</th></tr>
-  {% for record in records %}<tr><td>{{ record["id"] }}</td><td>{{ record["uid"] }}</td><td>{{ record["meal_date"] }}</td><td>{{ record["meal_type"] }}</td><td>{{ record["served_at"] }}</td><td>{{ record["source"] }}</td>
+  <table><tr><th>ID</th><th>이름</th><th>UID</th><th>날짜</th><th>급식</th><th>처리 시각</th><th>출처</th><th>삭제</th></tr>
+  {% for record in records %}<tr><td>{{ record["id"] }}</td><td>{{ record["name"] or "미입력" }}</td><td>{{ record["uid"] }}</td><td>{{ record["meal_date"] }}</td><td>{{ record["meal_type"] }}</td><td>{{ record["served_at"] }}</td><td>{{ record["source"] }}</td>
     <td class="danger"><form class="inline" method="post" action="{{ url_for('web.web_delete_record', record_id=record['id']) }}"><input name="confirm" placeholder="삭제 입력" required><button>삭제</button></form></td></tr>
-  {% else %}<tr><td colspan="7">기록이 없습니다.</td></tr>{% endfor %}</table></section>
+  {% else %}<tr><td colspan="8">기록이 없습니다.</td></tr>{% endfor %}</table></section>
 </main></body></html>

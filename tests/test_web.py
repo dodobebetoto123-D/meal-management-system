@@ -40,6 +40,39 @@ def test_production_startup_requires_secret_key(tmp_path):
         })
 
 
+def test_existing_students_are_migrated_with_nullable_name(tmp_path):
+    import sqlite3
+    database = tmp_path / "legacy.sqlite3"
+    connection = sqlite3.connect(database)
+    connection.execute(
+        "CREATE TABLE students (uid TEXT PRIMARY KEY, grade INTEGER NOT NULL, "
+        "class_number INTEGER NOT NULL, created_at TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP)"
+    )
+    connection.execute(
+        "INSERT INTO students(uid, grade, class_number) VALUES ('LEGACY', 3, 2)"
+    )
+    connection.commit()
+    connection.close()
+
+    app = create_app({
+        "TESTING": True,
+        "DATABASE": str(database),
+        "TIMEZONE": "Asia/Seoul",
+        "ADMIN_USERNAME": "admin",
+        "ADMIN_PASSWORD": "password",
+        "SECRET_KEY": "test-only-secret-key",
+    })
+    with app.app_context():
+        connection = sqlite3.connect(database)
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(students)")}
+        legacy_name = connection.execute(
+            "SELECT name FROM students WHERE uid='LEGACY'"
+        ).fetchone()[0]
+        connection.close()
+    assert "name" in columns
+    assert legacy_name is None
+
+
 def test_web_student_update_and_safe_delete(client):
     login(client)
     import sqlite3
@@ -48,7 +81,7 @@ def test_web_student_update_and_safe_delete(client):
     connection.commit()
     connection.close()
     response = client.post("/admin/students/A1/edit",
-                           data={"uid": "A2", "grade": "4", "class": "1"})
+                           data={"name": "김학생", "uid": "A2", "grade": "4", "class": "1"})
     assert response.status_code == 302
     assert client.get("/admin").status_code == 200
     response = client.post("/admin/students/A2/delete", data={"confirm_uid": "wrong"})
@@ -57,12 +90,12 @@ def test_web_student_update_and_safe_delete(client):
 
 def test_web_student_add_requires_login_and_refreshes_list(client):
     assert client.post(
-        "/admin/students", data={"uid": "A1", "grade": "3", "class": "2"}
+        "/admin/students", data={"name": "홍길동", "uid": "A1", "grade": "3", "class": "2"}
     ).status_code == 302
     login(client)
 
     response = client.post(
-        "/admin/students", data={"uid": "A1", "grade": "3", "class": "2"}
+        "/admin/students", data={"name": "홍길동", "uid": "A1", "grade": "3", "class": "2"}
     )
     assert response.status_code == 302
     page = client.get("/admin")
@@ -73,16 +106,16 @@ def test_web_student_add_requires_login_and_refreshes_list(client):
 def test_web_student_add_validates_and_handles_duplicate_uid(client):
     login(client)
     response = client.post(
-        "/admin/students", data={"uid": " ", "grade": "3", "class": "2"}
+        "/admin/students", data={"name": " ", "uid": " ", "grade": "3", "class": "2"}
     )
     assert response.status_code == 302
-    assert "UID와 학년(1~12), 반(양의 정수)을 입력하세요." in client.get(
+    assert "이름(1~100자), UID와 학년(1~12), 반(양의 정수)을 입력하세요." in client.get(
         "/admin"
     ).get_data(as_text=True)
 
-    client.post("/admin/students", data={"uid": "A1", "grade": "3", "class": "2"})
+    client.post("/admin/students", data={"name": "홍길동", "uid": "A1", "grade": "3", "class": "2"})
     response = client.post(
-        "/admin/students", data={"uid": "A1", "grade": "4", "class": "1"}
+        "/admin/students", data={"name": "다른학생", "uid": "A1", "grade": "4", "class": "1"}
     )
     assert response.status_code == 302
     page = client.get("/admin").get_data(as_text=True)
